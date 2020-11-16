@@ -1,0 +1,11 @@
+api
+api is a python script that uses the python flask framework to create a simple API. It use the prometheus_client library to track metrics.
+
+Installation 
+Use the attached dockerfile to create a docker image and run the image.
+The api file and the dockerfile need to be placed in same directory. 
+Then build the docker image ;
+docker build dockerfile
+Use the image to create a container.
+The api will be running on the container 
+The API uses port 8080

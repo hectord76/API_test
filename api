@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+from flask import Flask, request, jsonify, Response
+from os import path
+import hashlib
+import json
+import prometheus_client
+from prometheus_client import Counter, Gauge
+
+app = Flask(__name__)
+
+#setting up metrics. Counters for POST/GET/DELETE requests. Gauge to track number of stored messages
+graphs ={}
+graphs['pc'] = Counter('post_counter','Tracks numer of POST request')
+graphs['gc'] = Counter('get_counter','Tracks numer of GET request')
+graphs['dc'] = Counter('delete_counter','Tracks numer of DELETE request')
+graphs['gms'] = Gauge('Messages_stored', 'Tracks the number of message that are saved')
+
+#Converting message to hash
+def get_SHA(smessage) :
+    y = hashlib.sha256(smessage.encode('utf-8')).hexdigest()
+    return y
+
+# store message in JSON file, using the hash as the key, and the message as the value
+def store_mes(value1,key1) :
+    if not path.exists("message_store") :
+        to_save = {key1 : value1}
+        graphs['gms'].set(len(to_save))
+        to_save_json = json.dumps(to_save)
+        f = open("message_store","w")
+        f.write(to_save_json)
+        f.close()
+    else :
+        f = open("message_store","r")
+        saved_f = json.load(f)
+        f.close()
+        saved_f[key1] = value1
+        graphs['gms'].set(len(saved_f))
+        saved_f_json = json.dumps(saved_f)
+        f = open("message_store","w")
+        f.write(saved_f_json)
+        f.close()
+
+#retrieve message from JSON file by their hash
+def get_decoded(coded) :
+    ans = {"error": "unable to find message", "message_sha256": coded }
+    if path.exists("message_store") :
+        f = open("message_store","r")
+        saved_f = json.load(f)
+        f.close()
+        graphs['gms'].set(len(saved_f))
+        if coded in saved_f.keys() :
+            ans = {"message" : saved_f[coded]}
+    return(ans)
+
+#remove the message from the JSON file
+def delete_message(coded) :
+    ans = {"DELETE" : "There is no value for " + coded}
+    if path.exists("message_store") :
+        f = open("message_store","r")
+        saved_f = json.load(f)
+        f.close()
+        if coded in saved_f.keys() :
+            del saved_f[coded]
+            saved_f_json = json.dumps(saved_f)
+            graphs['gms'].set(len(saved_f))
+            f = open("message_store","w")
+            f.write(saved_f_json)
+            f.close()
+            ans = {"DELETE" : "The value has been removed for the following " + coded}
+    return ans
+
+
+
+#end point for post messages
+@app.route('/messages', methods=['POST'])
+def insert_message():
+    print(request.method)
+    if request.method == 'POST' :
+        graphs['pc'].inc()
+        d ={}
+        j = request.get_json()
+        mess1 = j['message']
+        dh = get_SHA(mess1)
+        d["digest"] = dh
+        store_mes(mess1,dh)
+        return jsonify(d)
+
+#end point for GET/DELETES
+@app.route('/messages/<string:codedstr>', methods=['GET','DELETE'])
+def retrieval(codedstr) :
+    if request.method == 'GET' :
+        graphs['gc'].inc()
+        return_d = get_decoded(codedstr)
+        return jsonify(return_d)
+    elif request.method == 'DELETE' :
+        graphs['dc'].inc()
+        d = delete_message(codedstr)
+        return jsonify(d)
+
+#end point for metrics
+@app.route('/metrics')
+def request_count():
+    req = []
+    for k, v in graphs.items():
+        req.append(prometheus_client.generate_latest(v))
+    return Response(req, mimetype='text/plain')
+
+if __name__ == "__main__" :
+    #app.run(debug=True, host='0.0.0.0', port =8080)
+#port number can be updated below
+    app.run( host='0.0.0.0', port =8080)
+
